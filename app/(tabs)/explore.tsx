@@ -1,112 +1,275 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { api } from "../../services/api";
 
-export default function TabTwoScreen() {
+type PredictionHistoryItem = {
+  id: number;
+  pregnancies: number;
+  glucose: number;
+  blood_pressure: number;
+  skin_thickness: number;
+  insulin: number;
+  bmi: number;
+  diabetes_pedigree_function: number;
+  age: number;
+  prediction: number;
+  risk: "alto" | "bajo";
+  message: string;
+  recommendation: string;
+  created_at: string;
+};
+
+type PredictionHistoryResponse = {
+  predictions: PredictionHistoryItem[];
+};
+
+function formatDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
+}
+
+export default function HistoryScreen() {
+  const [predictions, setPredictions] = useState<PredictionHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadPredictions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get<PredictionHistoryResponse>("/predictions?limit=20");
+      setPredictions(response.data.predictions);
+    } catch (error) {
+      console.log(error);
+      Alert.alert("Error", "No se pudo cargar el historial.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPredictions();
+  }, [loadPredictions]);
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Historial</Text>
+          <Text style={styles.subtitle}>Ultimas predicciones registradas.</Text>
+        </View>
+
+        <Pressable style={styles.refreshButton} onPress={loadPredictions} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.refreshText}>Actualizar</Text>
+          )}
+        </Pressable>
+      </View>
+
+      {!loading && predictions.length === 0 && (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Sin registros</Text>
+          <Text style={styles.emptyText}>
+            Realiza una prediccion para que aparezca en esta pantalla.
+          </Text>
+        </View>
+      )}
+
+      {predictions.map((item) => {
+        const isHighRisk = item.risk === "alto";
+
+        return (
+          <View key={item.id} style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View>
+                <Text style={styles.recordId}>Registro #{item.id}</Text>
+                <Text style={styles.date}>{formatDate(item.created_at)}</Text>
+              </View>
+
+              <View style={[styles.badge, isHighRisk ? styles.highBadge : styles.lowBadge]}>
+                <Text style={styles.badgeText}>{item.message}</Text>
+              </View>
+            </View>
+
+            <View style={styles.metricsGrid}>
+              <Metric label="Glucosa" value={item.glucose} />
+              <Metric label="BMI" value={item.bmi} />
+              <Metric label="Edad" value={item.age} />
+              <Metric label="Presion" value={item.blood_pressure} />
+            </View>
+
+            <Text style={styles.recommendation}>{item.recommendation}</Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.metric}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    backgroundColor: "#f4f8fb",
+    flexGrow: 1,
+    padding: 20,
+    paddingBottom: 32,
   },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
+
+  header: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    marginBottom: 18,
+    marginTop: 24,
+  },
+
+  title: {
+    color: "#12324a",
+    fontSize: 28,
+    fontWeight: "bold",
+  },
+
+  subtitle: {
+    color: "#526476",
+    fontSize: 15,
+    lineHeight: 21,
+    marginTop: 4,
+  },
+
+  refreshButton: {
+    alignItems: "center",
+    backgroundColor: "#0f766e",
+    borderRadius: 8,
+    minWidth: 104,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+
+  refreshText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  emptyCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 16,
+  },
+
+  emptyTitle: {
+    color: "#12324a",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
+  emptyText: {
+    color: "#526476",
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 6,
+  },
+
+  card: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    marginBottom: 14,
+    padding: 16,
+  },
+
+  cardHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+
+  recordId: {
+    color: "#12324a",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  date: {
+    color: "#64748b",
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  badge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  highBadge: {
+    backgroundColor: "#fee2e2",
+  },
+
+  lowBadge: {
+    backgroundColor: "#dcfce7",
+  },
+
+  badgeText: {
+    color: "#102a43",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  metric: {
+    backgroundColor: "#eef5fa",
+    borderRadius: 8,
+    minWidth: "47%",
+    padding: 10,
+  },
+
+  metricLabel: {
+    color: "#526476",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  metricValue: {
+    color: "#12324a",
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+
+  recommendation: {
+    color: "#334155",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 14,
   },
 });
