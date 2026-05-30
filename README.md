@@ -1,50 +1,131 @@
-# Welcome to your Expo app 👋
+# Diabetes Risk App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplicacion movil desarrollada con Expo y React Native para estimar de forma referencial el riesgo de diabetes a partir de indicadores clinicos basicos. La app consume un backend FastAPI que ejecuta un modelo de Machine Learning y guarda el historial de predicciones.
 
-## Get started
+> Esta aplicacion no reemplaza una evaluacion medica profesional. Su objetivo es educativo, preventivo y academico.
 
-1. Install dependencies
+## Caracteristicas
 
-   ```bash
-   npm install
-   ```
+- Flujo guiado por pasos para ingresar datos.
+- Validacion local de rangos antes de consultar el backend.
+- Prediccion de riesgo usando API FastAPI.
+- Pantalla dedicada de resultado con porcentaje estimado, nivel de riesgo y recomendaciones.
+- Historial de predicciones registradas.
+- Interfaz moderna con soporte para modo claro y oscuro.
+- Navegacion por tabs y gesto horizontal entre pantallas.
 
-2. Start the app
+## Tecnologias
 
-   ```bash
-   npx expo start
-   ```
+- Expo
+- React Native
+- TypeScript
+- Expo Router
+- Axios
+- Material Icons
 
-In the output, you'll find options to open the app in a
+## Pantallas principales
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| Pantalla | Descripcion |
+| --- | --- |
+| Prediccion | Formulario guiado para ingresar edad, glucosa, BMI y otros indicadores. |
+| Historial | Lista las ultimas predicciones guardadas por el backend. |
+| Resultado | Muestra el resultado final, porcentaje de riesgo, estado visual y recomendaciones. |
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Requisitos
 
-## Get a fresh project
+- Node.js
+- npm
+- Expo Go en Android o iOS
+- Backend FastAPI ejecutandose en la misma red local
 
-When you're ready, run:
+## Instalacion
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Configuracion de la API
 
-## Learn more
+Crea un archivo `.env` en la raiz del proyecto:
 
-To learn more about developing your project with Expo, look at the following resources:
+```env
+EXPO_PUBLIC_API_BASE_URL=http://TU_IP_LOCAL:8000
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Ejemplo:
 
-## Join the community
+```env
+EXPO_PUBLIC_API_BASE_URL=http://192.168.18.2:8000
+```
 
-Join our community of developers creating universal apps.
+Si usas Android con Expo Go, no uses `localhost`, porque el telefono interpretara `localhost` como el propio dispositivo. Debes usar la IP local de la computadora donde corre FastAPI.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Ejecutar en Expo Go
+
+```bash
+npx expo start --host lan
+```
+
+Luego escanea el QR con Expo Go.
+
+Si Expo no toma cambios recientes:
+
+```bash
+npx expo start --host lan -c
+```
+
+## Backend esperado
+
+La app espera que el backend exponga estos endpoints:
+
+| Metodo | Endpoint | Uso |
+| --- | --- | --- |
+| `GET` | `/health` | Verificar estado de API, modelo y base de datos. |
+| `POST` | `/predict` | Enviar indicadores y recibir prediccion. |
+| `GET` | `/predictions?limit=20` | Obtener historial de predicciones. |
+
+Respuesta esperada de `/predict`:
+
+```json
+{
+  "id": 1,
+  "prediction": 1,
+  "risk": "alto",
+  "message": "Alto riesgo de diabetes",
+  "recommendation": "Consulta con un profesional de salud para una evaluacion preventiva."
+}
+```
+
+## Datos solicitados
+
+- Embarazos
+- Edad
+- Glucosa
+- Presion arterial
+- BMI / IMC
+- Grosor de piel
+- Insulina
+- Funcion pedigree de diabetes
+
+## Problemas comunes
+
+| Problema | Solucion |
+| --- | --- |
+| Expo Go no conecta al proyecto | Verifica que celular y PC esten en la misma red. |
+| La app no conecta con FastAPI | Usa la IP local de la PC en `EXPO_PUBLIC_API_BASE_URL`. |
+| En Linux no conecta desde el celular | Abre puertos: `sudo ufw allow 8081/tcp` y `sudo ufw allow 8000/tcp`. |
+| Cambiaste `.env` y sigue igual | Reinicia Expo con `npx expo start --host lan -c`. |
+
+## Scripts disponibles
+
+```bash
+npm start
+npm run android
+npm run ios
+npm run web
+npm run lint
+```
+
+## Nota academica
+
+Este proyecto forma parte de una solucion movil academica para Taller de Software Movil. La prediccion es referencial y debe interpretarse como orientacion preventiva, no como diagnostico clinico.
