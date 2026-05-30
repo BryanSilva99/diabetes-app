@@ -11,6 +11,7 @@ import {
 
 import ActionButton from "../../components/ActionButton";
 import HealthCard from "../../components/HealthCard";
+import SwipeTabs from "../../components/SwipeTabs";
 import { healthThemes } from "../../constants/health-theme";
 import { api, getApiErrorInfo } from "../../services/api";
 
@@ -77,11 +78,12 @@ export default function HistoryScreen() {
   }, [loadPredictions]);
 
   return (
-    <ScrollView
-      style={[styles.screen, { backgroundColor: theme.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
+    <SwipeTabs current="explore">
+      <ScrollView
+        style={[styles.screen, { backgroundColor: theme.background }]}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
       <View style={[styles.headerPanel, { backgroundColor: theme.primaryDark }]}>
         <View style={styles.headerTop}>
           <View>
@@ -176,7 +178,8 @@ export default function HistoryScreen() {
           </HealthCard>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </SwipeTabs>
   );
 }
 

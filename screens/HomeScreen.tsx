@@ -1,4 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,28 +14,15 @@ import {
 import ActionButton from "../components/ActionButton";
 import HealthCard from "../components/HealthCard";
 import InputField from "../components/InputField";
-import RiskGauge from "../components/RiskGauge";
+import SwipeTabs from "../components/SwipeTabs";
 import { healthThemes } from "../constants/health-theme";
+import {
+  type FormValues,
+  type PredictionPayload,
+  type PredictionResult,
+  usePrediction,
+} from "../contexts/PredictionContext";
 import { api, getApiErrorInfo } from "../services/api";
-
-type FormValues = {
-  Pregnancies: string;
-  Glucose: string;
-  BloodPressure: string;
-  SkinThickness: string;
-  Insulin: string;
-  BMI: string;
-  DiabetesPedigreeFunction: string;
-  Age: string;
-};
-
-type PredictionResult = {
-  id: number;
-  prediction: number;
-  risk: "alto" | "bajo";
-  message: string;
-  recommendation: string;
-};
 
 type FieldConfig = {
   key: keyof FormValues;
@@ -149,56 +137,14 @@ const stepGroups: Array<{
   },
 ];
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function estimateRiskPercent(payload: Record<keyof FormValues, number>, result: PredictionResult) {
-  const glucoseFactor = payload.Glucose >= 140 ? 9 : payload.Glucose >= 110 ? 5 : 0;
-  const bmiFactor = payload.BMI >= 35 ? 8 : payload.BMI >= 30 ? 5 : payload.BMI >= 25 ? 2 : 0;
-  const ageFactor = payload.Age >= 55 ? 5 : payload.Age >= 40 ? 3 : 0;
-  const pedigreeFactor = payload.DiabetesPedigreeFunction >= 1 ? 4 : 0;
-  const score = (result.risk === "alto" ? 68 : 18) + glucoseFactor + bmiFactor + ageFactor + pedigreeFactor;
-
-  return result.risk === "alto" ? clamp(score, 65, 92) : clamp(score, 10, 44);
-}
-
-function getRiskPresentation(percent: number, theme: (typeof healthThemes)["light"]) {
-  if (percent >= 65) {
-    return {
-      label: "Riesgo Alto",
-      color: theme.danger,
-      soft: theme.dangerSoft,
-      title: "Conviene buscar orientacion profesional",
-    };
-  }
-
-  if (percent >= 40) {
-    return {
-      label: "Riesgo Medio",
-      color: theme.warning,
-      soft: theme.warningSoft,
-      title: "Hay senales que conviene vigilar",
-    };
-  }
-
-  return {
-    label: "Riesgo Bajo",
-    color: theme.success,
-    soft: theme.successSoft,
-    title: "El resultado actual luce favorable",
-  };
-}
-
 export default function HomeScreen() {
   const scheme = useColorScheme();
   const theme = healthThemes[scheme === "dark" ? "dark" : "light"];
+  const { clearPrediction, savePrediction } = usePrediction();
   const [currentStep, setCurrentStep] = useState(0);
   const [form, setForm] = useState<FormValues>(initialForm);
-  const [lastPayload, setLastPayload] = useState<Record<keyof FormValues, number> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<PredictionResult | null>(null);
 
   const visibleFields = stepGroups[currentStep].fields
     .map((key) => fields.find((field) => field.key === key))
@@ -246,7 +192,7 @@ export default function HomeScreen() {
         ...accumulator,
         [key]: Number(value),
       }),
-      {} as Record<keyof FormValues, number>,
+      {} as PredictionPayload,
     );
   };
 
@@ -264,9 +210,8 @@ export default function HomeScreen() {
 
   const resetForm = () => {
     setForm(initialForm);
-    setLastPayload(null);
+    clearPrediction();
     setFieldErrors({});
-    setResult(null);
     setCurrentStep(0);
   };
 
@@ -279,10 +224,13 @@ export default function HomeScreen() {
 
     try {
       setLoading(true);
-      setResult(null);
       const response = await api.post<PredictionResult>("/predict", payload);
-      setLastPayload(payload);
-      setResult(response.data);
+      savePrediction({
+        payload,
+        result: response.data,
+        createdAt: new Date().toISOString(),
+      });
+      router.push("/(tabs)/result");
     } catch (error) {
       console.log(error);
       const apiError = getApiErrorInfo(error);
@@ -292,16 +240,15 @@ export default function HomeScreen() {
     }
   };
 
-  const riskPercent = result && lastPayload ? estimateRiskPercent(lastPayload, result) : 0;
-  const risk = getRiskPresentation(riskPercent, theme);
   const isLastStep = currentStep === stepGroups.length - 1;
 
   return (
-    <ScrollView
-      style={[styles.screen, { backgroundColor: theme.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
+    <SwipeTabs current="index">
+      <ScrollView
+        style={[styles.screen, { backgroundColor: theme.background }]}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
       <View style={[styles.hero, { backgroundColor: theme.primaryDark }]}>
         <View style={styles.heroTop}>
           <View style={[styles.logoMark, { backgroundColor: theme.primary }]}>
@@ -409,66 +356,8 @@ export default function HomeScreen() {
         </HealthCard>
       )}
 
-      {result && !loading && (
-        <HealthCard theme={theme} style={{ backgroundColor: risk.soft }}>
-          <RiskGauge percent={riskPercent} label={risk.label} color={risk.color} theme={theme} />
-          <Text style={[styles.resultTitle, { color: theme.text }]}>{risk.title}</Text>
-          <Text style={[styles.resultText, { color: theme.muted }]}>
-            {result.recommendation} Registro #{result.id}.
-          </Text>
-
-          <View style={styles.recommendationGrid}>
-            <InfoTile
-              icon="restaurant"
-              title="Alimentacion"
-              text="Prioriza fibra, agua y porciones moderadas."
-              color={risk.color}
-              theme={theme}
-            />
-            <InfoTile
-              icon="directions-walk"
-              title="Actividad"
-              text="Mantener movimiento regular ayuda al control metabolico."
-              color={risk.color}
-              theme={theme}
-            />
-            <InfoTile
-              icon="medical-services"
-              title="Seguimiento"
-              text="Usa este resultado como orientacion, no como diagnostico."
-              color={risk.color}
-              theme={theme}
-            />
-          </View>
-        </HealthCard>
-      )}
-    </ScrollView>
-  );
-}
-
-function InfoTile({
-  icon,
-  title,
-  text,
-  color,
-  theme,
-}: {
-  icon: keyof typeof MaterialIcons.glyphMap;
-  title: string;
-  text: string;
-  color: string;
-  theme: (typeof healthThemes)["light"];
-}) {
-  return (
-    <View style={[styles.infoTile, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={[styles.infoIcon, { backgroundColor: color }]}>
-        <MaterialIcons name={icon} size={18} color="#ffffff" />
-      </View>
-      <View style={styles.infoCopy}>
-        <Text style={[styles.infoTitle, { color: theme.text }]}>{title}</Text>
-        <Text style={[styles.infoText, { color: theme.muted }]}>{text}</Text>
-      </View>
-    </View>
+      </ScrollView>
+    </SwipeTabs>
   );
 }
 

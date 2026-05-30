@@ -20,8 +20,8 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderTopColor: theme.border,
-          height: 72,
-          paddingBottom: 10,
+          height: 88,
+          paddingBottom: 24,
           paddingTop: 8,
         },
         tabBarLabelStyle: {
@@ -41,6 +41,13 @@ export default function TabLayout() {
         options={{
           title: 'Historial',
           tabBarIcon: ({ color }) => <MaterialIcons size={28} name="history" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="result"
+        options={{
+          title: 'Resultado',
+          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="analytics" color={color} />,
         }}
       />
     </Tabs>
