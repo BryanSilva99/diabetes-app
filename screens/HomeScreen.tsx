@@ -1,16 +1,21 @@
-import { useState } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
 } from "react-native";
 
+import ActionButton from "../components/ActionButton";
+import HealthCard from "../components/HealthCard";
 import InputField from "../components/InputField";
-import { api } from "../services/api";
+import RiskGauge from "../components/RiskGauge";
+import { healthThemes } from "../constants/health-theme";
+import { api, getApiErrorInfo } from "../services/api";
 
 type FormValues = {
   Pregnancies: string;
@@ -31,6 +36,15 @@ type PredictionResult = {
   recommendation: string;
 };
 
+type FieldConfig = {
+  key: keyof FormValues;
+  label: string;
+  placeholder: string;
+  min: number;
+  max: number;
+  helperText: string;
+};
+
 const initialForm: FormValues = {
   Pregnancies: "",
   Glucose: "",
@@ -42,59 +56,218 @@ const initialForm: FormValues = {
   Age: "",
 };
 
-const fields: Array<{
-  key: keyof FormValues;
-  label: string;
-  placeholder: string;
-}> = [
-  { key: "Pregnancies", label: "Embarazos", placeholder: "Ej: 2" },
-  { key: "Glucose", label: "Glucosa (mg/dL)", placeholder: "Ej: 120" },
-  { key: "BloodPressure", label: "Presion arterial", placeholder: "Ej: 70" },
-  { key: "SkinThickness", label: "Grosor de piel", placeholder: "Ej: 20" },
-  { key: "Insulin", label: "Insulina", placeholder: "Ej: 79" },
-  { key: "BMI", label: "IMC / BMI", placeholder: "Ej: 28.5" },
+const fields: FieldConfig[] = [
+  {
+    key: "Pregnancies",
+    label: "Embarazos",
+    placeholder: "Ej: 2",
+    min: 0,
+    max: 20,
+    helperText: "0 a 20",
+  },
+  {
+    key: "Age",
+    label: "Edad",
+    placeholder: "Ej: 35",
+    min: 1,
+    max: 120,
+    helperText: "1 a 120 anos",
+  },
+  {
+    key: "Glucose",
+    label: "Glucosa",
+    placeholder: "Ej: 120",
+    min: 1,
+    max: 250,
+    helperText: "mg/dL, mayor a 0 hasta 250",
+  },
+  {
+    key: "BloodPressure",
+    label: "Presion arterial",
+    placeholder: "Ej: 70",
+    min: 1,
+    max: 150,
+    helperText: "mmHg, mayor a 0 hasta 150",
+  },
+  {
+    key: "BMI",
+    label: "IMC / BMI",
+    placeholder: "Ej: 28.5",
+    min: 1,
+    max: 80,
+    helperText: "mayor a 0 hasta 80",
+  },
+  {
+    key: "SkinThickness",
+    label: "Grosor de piel",
+    placeholder: "Ej: 20",
+    min: 0,
+    max: 100,
+    helperText: "mm, 0 a 100",
+  },
+  {
+    key: "Insulin",
+    label: "Insulina",
+    placeholder: "Ej: 79",
+    min: 0,
+    max: 900,
+    helperText: "0 a 900",
+  },
   {
     key: "DiabetesPedigreeFunction",
-    label: "Funcion pedigree diabetes",
+    label: "Funcion pedigree",
     placeholder: "Ej: 0.5",
+    min: 0,
+    max: 3,
+    helperText: "0 a 3",
   },
-  { key: "Age", label: "Edad", placeholder: "Ej: 35" },
 ];
 
+const stepGroups: Array<{
+  title: string;
+  subtitle: string;
+  icon: keyof typeof MaterialIcons.glyphMap;
+  fields: Array<keyof FormValues>;
+}> = [
+  {
+    title: "Datos basicos",
+    subtitle: "Empecemos por informacion general.",
+    icon: "person-outline",
+    fields: ["Pregnancies", "Age"],
+  },
+  {
+    title: "Indicadores principales",
+    subtitle: "Estos valores tienen mayor peso clinico.",
+    icon: "monitor-heart",
+    fields: ["Glucose", "BloodPressure", "BMI"],
+  },
+  {
+    title: "Datos complementarios",
+    subtitle: "Ayudan al modelo a completar la estimacion.",
+    icon: "science",
+    fields: ["SkinThickness", "Insulin", "DiabetesPedigreeFunction"],
+  },
+];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function estimateRiskPercent(payload: Record<keyof FormValues, number>, result: PredictionResult) {
+  const glucoseFactor = payload.Glucose >= 140 ? 9 : payload.Glucose >= 110 ? 5 : 0;
+  const bmiFactor = payload.BMI >= 35 ? 8 : payload.BMI >= 30 ? 5 : payload.BMI >= 25 ? 2 : 0;
+  const ageFactor = payload.Age >= 55 ? 5 : payload.Age >= 40 ? 3 : 0;
+  const pedigreeFactor = payload.DiabetesPedigreeFunction >= 1 ? 4 : 0;
+  const score = (result.risk === "alto" ? 68 : 18) + glucoseFactor + bmiFactor + ageFactor + pedigreeFactor;
+
+  return result.risk === "alto" ? clamp(score, 65, 92) : clamp(score, 10, 44);
+}
+
+function getRiskPresentation(percent: number, theme: (typeof healthThemes)["light"]) {
+  if (percent >= 65) {
+    return {
+      label: "Riesgo Alto",
+      color: theme.danger,
+      soft: theme.dangerSoft,
+      title: "Conviene buscar orientacion profesional",
+    };
+  }
+
+  if (percent >= 40) {
+    return {
+      label: "Riesgo Medio",
+      color: theme.warning,
+      soft: theme.warningSoft,
+      title: "Hay senales que conviene vigilar",
+    };
+  }
+
+  return {
+    label: "Riesgo Bajo",
+    color: theme.success,
+    soft: theme.successSoft,
+    title: "El resultado actual luce favorable",
+  };
+}
+
 export default function HomeScreen() {
+  const scheme = useColorScheme();
+  const theme = healthThemes[scheme === "dark" ? "dark" : "light"];
+  const [currentStep, setCurrentStep] = useState(0);
   const [form, setForm] = useState<FormValues>(initialForm);
+  const [lastPayload, setLastPayload] = useState<Record<keyof FormValues, number> | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
 
+  const visibleFields = stepGroups[currentStep].fields
+    .map((key) => fields.find((field) => field.key === key))
+    .filter(Boolean) as FieldConfig[];
+
+  const completedFields = useMemo(
+    () => Object.values(form).filter((value) => value.trim() !== "").length,
+    [form],
+  );
+  const completionPercent = Math.round((completedFields / fields.length) * 100);
+
   const updateField = (key: keyof FormValues, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
+    setFieldErrors((current) => ({ ...current, [key]: undefined }));
+  };
+
+  const validateFields = (targetFields: FieldConfig[]) => {
+    const errors: Partial<Record<keyof FormValues, string>> = {};
+
+    for (const field of targetFields) {
+      const rawValue = form[field.key].trim();
+      const numericValue = Number(rawValue);
+
+      if (!rawValue) {
+        errors[field.key] = "Completa este dato.";
+      } else if (Number.isNaN(numericValue)) {
+        errors[field.key] = "Ingresa solo numeros.";
+      } else if (numericValue < field.min || numericValue > field.max) {
+        errors[field.key] = `Debe estar entre ${field.min} y ${field.max}.`;
+      }
+    }
+
+    setFieldErrors((current) => ({ ...current, ...errors }));
+    return Object.keys(errors).length === 0;
   };
 
   const buildPayload = () => {
-    const entries = Object.entries(form) as Array<[keyof FormValues, string]>;
-    const emptyField = entries.find(([, value]) => value.trim() === "");
-
-    if (emptyField) {
-      Alert.alert("Datos incompletos", "Completa todos los campos antes de predecir.");
+    if (!validateFields(fields)) {
+      Alert.alert("Revisa los datos", "Hay campos incompletos o fuera de rango.");
       return null;
     }
 
-    const payload = entries.reduce(
+    return Object.entries(form).reduce(
       (accumulator, [key, value]) => ({
         ...accumulator,
         [key]: Number(value),
       }),
       {} as Record<keyof FormValues, number>,
     );
+  };
 
-    const invalidField = Object.entries(payload).find(([, value]) => Number.isNaN(value));
-
-    if (invalidField) {
-      Alert.alert("Datos invalidos", "Ingresa solo valores numericos.");
-      return null;
+  const goNext = () => {
+    if (!validateFields(visibleFields)) {
+      return;
     }
 
-    return payload;
+    setCurrentStep((step) => Math.min(step + 1, stepGroups.length - 1));
+  };
+
+  const goBack = () => {
+    setCurrentStep((step) => Math.max(step - 1, 0));
+  };
+
+  const resetForm = () => {
+    setForm(initialForm);
+    setLastPayload(null);
+    setFieldErrors({});
+    setResult(null);
+    setCurrentStep(0);
   };
 
   const predictDiabetes = async () => {
@@ -106,159 +279,369 @@ export default function HomeScreen() {
 
     try {
       setLoading(true);
+      setResult(null);
       const response = await api.post<PredictionResult>("/predict", payload);
+      setLastPayload(payload);
       setResult(response.data);
     } catch (error) {
       console.log(error);
-      Alert.alert("Error", "No se pudo conectar con la API.");
+      const apiError = getApiErrorInfo(error);
+      Alert.alert(apiError.title, apiError.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const isHighRisk = result?.risk === "alto";
+  const riskPercent = result && lastPayload ? estimateRiskPercent(lastPayload, result) : 0;
+  const risk = getRiskPresentation(riskPercent, theme);
+  const isLastStep = currentStep === stepGroups.length - 1;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Prediccion de Diabetes</Text>
-      <Text style={styles.subtitle}>
-        Ingresa los datos del paciente para estimar el riesgo con el modelo entrenado.
-      </Text>
+    <ScrollView
+      style={[styles.screen, { backgroundColor: theme.background }]}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={[styles.hero, { backgroundColor: theme.primaryDark }]}>
+        <View style={styles.heroTop}>
+          <View style={[styles.logoMark, { backgroundColor: theme.primary }]}>
+            <MaterialIcons name="health-and-safety" size={28} color="#ffffff" />
+          </View>
+          <View style={[styles.statusPill, { backgroundColor: theme.primarySoft }]}>
+            <MaterialIcons name="verified" size={15} color={theme.primaryDark} />
+            <Text style={[styles.statusPillText, { color: theme.primaryDark }]}>ML activo</Text>
+          </View>
+        </View>
 
-      <View style={styles.formCard}>
-        {fields.map((field) => (
-          <InputField
-            key={field.key}
-            label={field.label}
-            placeholder={field.placeholder}
-            value={form[field.key]}
-            onChangeText={(value) => updateField(field.key, value)}
-          />
-        ))}
+        <Text style={styles.heroTitle}>Evalua tu riesgo metabolico en minutos</Text>
+        <Text style={styles.heroText}>
+          Ingresa indicadores basicos y recibe una orientacion clara, preventiva y facil de entender.
+        </Text>
 
-        <Pressable
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={predictDiabetes}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.buttonText}>Predecir riesgo</Text>
-          )}
-        </Pressable>
+        <View style={styles.heroStats}>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatValue}>8</Text>
+            <Text style={styles.heroStatLabel}>indicadores</Text>
+          </View>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatValue}>{completionPercent}%</Text>
+            <Text style={styles.heroStatLabel}>completado</Text>
+          </View>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatValue}>IA</Text>
+            <Text style={styles.heroStatLabel}>modelo ML</Text>
+          </View>
+        </View>
       </View>
 
-      {result && (
-        <View style={[styles.resultCard, isHighRisk ? styles.highRisk : styles.lowRisk]}>
-          <Text style={styles.resultLabel}>Resultado</Text>
-          <Text style={styles.resultTitle}>{result.message}</Text>
-          <Text style={styles.recordText}>Registro #{result.id}</Text>
-          <Text style={styles.resultText}>{result.recommendation}</Text>
-          <Text style={styles.disclaimer}>
-            Esta prediccion es referencial y no reemplaza una evaluacion medica.
-          </Text>
+      <HealthCard theme={theme}>
+        <View style={styles.stepHeader}>
+          <View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}>
+            <MaterialIcons name={stepGroups[currentStep].icon} size={24} color={theme.primary} />
+          </View>
+          <View style={styles.stepCopy}>
+            <Text style={[styles.eyebrow, { color: theme.primary }]}>
+              Paso {currentStep + 1} de {stepGroups.length}
+            </Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{stepGroups[currentStep].title}</Text>
+            <Text style={[styles.sectionText, { color: theme.muted }]}>{stepGroups[currentStep].subtitle}</Text>
+          </View>
         </View>
+
+        <View style={styles.progressTrack}>
+          <View
+            style={[
+              styles.progressFill,
+              {
+                backgroundColor: theme.primary,
+                width: `${((currentStep + 1) / stepGroups.length) * 100}%`,
+              },
+            ]}
+          />
+        </View>
+
+        <View style={styles.fields}>
+          {visibleFields.map((field) => (
+            <InputField
+              key={field.key}
+              label={field.label}
+              placeholder={field.placeholder}
+              helperText={field.helperText}
+              errorText={fieldErrors[field.key]}
+              value={form[field.key]}
+              onChangeText={(value) => updateField(field.key, value)}
+            />
+          ))}
+        </View>
+
+        <View style={styles.actions}>
+          {currentStep > 0 && (
+            <ActionButton
+              label="Atras"
+              icon="arrow-back"
+              variant="secondary"
+              colors={theme}
+              onPress={goBack}
+            />
+          )}
+          {isLastStep ? (
+            <ActionButton
+              label="Analizar riesgo"
+              icon="analytics"
+              loading={loading}
+              colors={theme}
+              onPress={predictDiabetes}
+            />
+          ) : (
+            <ActionButton label="Continuar" icon="arrow-forward" colors={theme} onPress={goNext} />
+          )}
+          <ActionButton label="Limpiar" icon="restart-alt" variant="ghost" colors={theme} onPress={resetForm} />
+        </View>
+      </HealthCard>
+
+      {loading && (
+        <HealthCard theme={theme} style={styles.processingCard}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.processingTitle, { color: theme.text }]}>Analizando indicadores</Text>
+          <Text style={[styles.sectionText, { color: theme.muted }]}>
+            Estamos consultando el modelo y preparando una lectura clara del resultado.
+          </Text>
+        </HealthCard>
+      )}
+
+      {result && !loading && (
+        <HealthCard theme={theme} style={{ backgroundColor: risk.soft }}>
+          <RiskGauge percent={riskPercent} label={risk.label} color={risk.color} theme={theme} />
+          <Text style={[styles.resultTitle, { color: theme.text }]}>{risk.title}</Text>
+          <Text style={[styles.resultText, { color: theme.muted }]}>
+            {result.recommendation} Registro #{result.id}.
+          </Text>
+
+          <View style={styles.recommendationGrid}>
+            <InfoTile
+              icon="restaurant"
+              title="Alimentacion"
+              text="Prioriza fibra, agua y porciones moderadas."
+              color={risk.color}
+              theme={theme}
+            />
+            <InfoTile
+              icon="directions-walk"
+              title="Actividad"
+              text="Mantener movimiento regular ayuda al control metabolico."
+              color={risk.color}
+              theme={theme}
+            />
+            <InfoTile
+              icon="medical-services"
+              title="Seguimiento"
+              text="Usa este resultado como orientacion, no como diagnostico."
+              color={risk.color}
+              theme={theme}
+            />
+          </View>
+        </HealthCard>
       )}
     </ScrollView>
   );
 }
 
+function InfoTile({
+  icon,
+  title,
+  text,
+  color,
+  theme,
+}: {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  title: string;
+  text: string;
+  color: string;
+  theme: (typeof healthThemes)["light"];
+}) {
+  return (
+    <View style={[styles.infoTile, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <View style={[styles.infoIcon, { backgroundColor: color }]}>
+        <MaterialIcons name={icon} size={18} color="#ffffff" />
+      </View>
+      <View style={styles.infoCopy}>
+        <Text style={[styles.infoTitle, { color: theme.text }]}>{title}</Text>
+        <Text style={[styles.infoText, { color: theme.muted }]}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: "#f4f8fb",
-    flexGrow: 1,
-    padding: 20,
-    paddingBottom: 32,
+  screen: {
+    flex: 1,
   },
-
-  title: {
-    color: "#12324a",
-    fontSize: 28,
-    fontWeight: "bold",
-    marginTop: 24,
-    textAlign: "center",
+  content: {
+    gap: 18,
+    padding: 18,
+    paddingBottom: 34,
   },
-
-  subtitle: {
-    color: "#526476",
-    fontSize: 15,
-    lineHeight: 21,
-    marginBottom: 20,
-    marginTop: 8,
-    textAlign: "center",
+  hero: {
+    borderRadius: 30,
+    overflow: "hidden",
+    padding: 22,
   },
-
-  formCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 8,
-    padding: 16,
-  },
-
-  button: {
+  heroTop: {
     alignItems: "center",
-    backgroundColor: "#0f766e",
-    borderRadius: 8,
-    marginTop: 4,
-    paddingVertical: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 28,
   },
-
-  buttonDisabled: {
-    opacity: 0.7,
+  logoMark: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 54,
+    justifyContent: "center",
+    width: 54,
   },
-
-  buttonText: {
+  statusPill: {
+    alignItems: "center",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  heroTitle: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 31,
+    fontWeight: "900",
+    lineHeight: 36,
+  },
+  heroText: {
+    color: "#d8fff7",
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 10,
+  },
+  heroStats: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 20,
+  },
+  heroStat: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 18,
+    flex: 1,
+    padding: 12,
+  },
+  heroStatValue: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  heroStatLabel: {
+    color: "#cffaf3",
+    fontSize: 11,
     fontWeight: "700",
+    marginTop: 2,
   },
-
-  resultCard: {
-    borderRadius: 8,
-    marginTop: 18,
-    padding: 16,
+  stepHeader: {
+    flexDirection: "row",
+    gap: 14,
   },
-
-  highRisk: {
-    backgroundColor: "#fee2e2",
+  stepIcon: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
   },
-
-  lowRisk: {
-    backgroundColor: "#dcfce7",
+  stepCopy: {
+    flex: 1,
   },
-
-  resultLabel: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "700",
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: "900",
     textTransform: "uppercase",
   },
-
-  resultTitle: {
-    color: "#102a43",
-    fontSize: 22,
-    fontWeight: "bold",
-    marginTop: 6,
+  sectionTitle: {
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 3,
   },
-
+  sectionText: {
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 5,
+  },
+  progressTrack: {
+    backgroundColor: "rgba(148,163,184,0.25)",
+    borderRadius: 999,
+    height: 8,
+    marginTop: 18,
+    overflow: "hidden",
+  },
+  progressFill: {
+    borderRadius: 999,
+    height: 8,
+  },
+  fields: {
+    marginTop: 18,
+  },
+  actions: {
+    gap: 10,
+    marginTop: 4,
+  },
+  processingCard: {
+    alignItems: "center",
+  },
+  processingTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 14,
+  },
+  resultTitle: {
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 30,
+    marginTop: 16,
+    textAlign: "center",
+  },
   resultText: {
-    color: "#334155",
     fontSize: 15,
     lineHeight: 22,
     marginTop: 8,
+    textAlign: "center",
   },
-
-  recordText: {
-    color: "#475569",
+  recommendationGrid: {
+    gap: 10,
+    marginTop: 18,
+  },
+  infoTile: {
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 13,
+  },
+  infoIcon: {
+    alignItems: "center",
+    borderRadius: 14,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  infoCopy: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  infoText: {
     fontSize: 13,
-    fontWeight: "600",
-    marginTop: 4,
-  },
-
-  disclaimer: {
-    color: "#64748b",
-    fontSize: 12,
     lineHeight: 18,
-    marginTop: 12,
+    marginTop: 2,
   },
 });
